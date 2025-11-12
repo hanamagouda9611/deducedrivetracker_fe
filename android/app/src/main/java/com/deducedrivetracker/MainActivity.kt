@@ -1,4 +1,4 @@
-package com.deducedrivetracker_fe
+package com.deducedrivetracker
 
 import com.facebook.react.ReactActivity
 import com.facebook.react.ReactActivityDelegate
