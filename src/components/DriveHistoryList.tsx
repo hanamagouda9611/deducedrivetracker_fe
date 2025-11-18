@@ -12,9 +12,7 @@ import DateTimePicker from "@react-native-community/datetimepicker";
 import axios from "axios";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 
-/* -----------------------------
-   TYPES
------------------------------- */
+/* TYPES */
 export type DriveSession = {
   id: number;
   start_time?: string;
@@ -30,25 +28,12 @@ type Props = {
   showToast?: (m: string, t?: "info" | "success" | "error") => void;
 };
 
-/* -----------------------------
-   EMPTY COMPONENT
------------------------------- */
 const EmptySessions = () => (
-  <Text
-    style={{
-      color: "#888",
-      textAlign: "center",
-      marginTop: 10,
-      fontSize: 14,
-    }}
-  >
+  <Text style={{ color: "#888", textAlign: "center", marginTop: 10, fontSize: 14 }}>
     No sessions available for selected date.
   </Text>
 );
 
-/* -----------------------------
-   MERGED DriveHistoryItem
------------------------------- */
 const DriveHistoryItem = ({
   item,
   expanded,
@@ -67,6 +52,7 @@ const DriveHistoryItem = ({
   return (
     <View style={{ marginBottom: 10 }}>
       <TouchableOpacity
+        onPress={onExpand}
         style={{
           padding: 12,
           backgroundColor: "#fff",
@@ -74,15 +60,8 @@ const DriveHistoryItem = ({
           borderWidth: 1,
           borderColor: expanded ? "#007bff" : "#ddd",
         }}
-        onPress={onExpand}
       >
-        <View
-          style={{
-            flexDirection: "row",
-            justifyContent: "space-between",
-            alignItems: "center",
-          }}
-        >
+        <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
           <Text style={{ fontWeight: "600", fontSize: 15 }}>{displayLabel}</Text>
           <Text style={{ fontSize: 14 }}>{item.total_km ?? "--"} km</Text>
         </View>
@@ -97,43 +76,21 @@ const DriveHistoryItem = ({
             borderRadius: 8,
           }}
         >
-          <Text>
-            Start:{" "}
-            {item.start_time
-              ? new Date(item.start_time).toLocaleString()
-              : "--"}
-          </Text>
-          <Text>
-            End:{" "}
-            {item.end_time ? new Date(item.end_time).toLocaleString() : "--"}
-          </Text>
+          <Text>Start: {item.start_time ? new Date(item.start_time).toLocaleString() : "--"}</Text>
+          <Text>End: {item.end_time ? new Date(item.end_time).toLocaleString() : "--"}</Text>
           <Text>Distance: {item.total_km ?? "--"} km</Text>
 
-          <View
-            style={{
-              flexDirection: "row",
-              marginTop: 10,
-              justifyContent: "space-between",
-            }}
-          >
+          <View style={{ flexDirection: "row", marginTop: 10, justifyContent: "space-between" }}>
             <TouchableOpacity
               onPress={() => onSelectSession(item.id)}
-              style={{
-                padding: 8,
-                backgroundColor: "#007bff",
-                borderRadius: 8,
-              }}
+              style={{ padding: 8, backgroundColor: "#007bff", borderRadius: 8 }}
             >
               <Text style={{ color: "#fff" }}>Show on Map</Text>
             </TouchableOpacity>
 
             <TouchableOpacity
               onPress={() => onSelectSession(item.id)}
-              style={{
-                padding: 8,
-                backgroundColor: "#28a745",
-                borderRadius: 8,
-              }}
+              style={{ padding: 8, backgroundColor: "#28a745", borderRadius: 8 }}
             >
               <Text style={{ color: "#fff" }}>Highlight</Text>
             </TouchableOpacity>
@@ -144,39 +101,40 @@ const DriveHistoryItem = ({
   );
 };
 
-/* -----------------------------
-   MAIN COMPONENT
------------------------------- */
-const DriveHistoryList: React.FC<Props> = ({
-  apiBase,
-  show,
-  onSelectSession,
-  showToast,
-}) => {
-  const [date, setDate] = useState(new Date());
-  const [showPicker, setShowPicker] = useState(false);
+  /* MAIN COMPONENT */
+  const DriveHistoryList: React.FC<Props> = ({ apiBase, show, onSelectSession, showToast }) => {
+    const [date, setDate] = useState(new Date());
+    const [showPicker, setShowPicker] = useState(false);
 
-  const [loading, setLoading] = useState(false);
-  const [sessions, setSessions] = useState<DriveSession[]>([]);
-  const [expandedId, setExpandedId] = useState<number | null>(null);
+    const [loading, setLoading] = useState(false);
+    const [sessions, setSessions] = useState<DriveSession[]>([]);
+    const [expandedId, setExpandedId] = useState<number | null>(null);
 
-  /* FETCH SESSIONS */
-  const fetchSessions = useCallback(
-    async (d: Date) => {
+    const fetchSessions = useCallback(
+    async (selectedDate: Date) => {
       setLoading(true);
       try {
         const token = await AsyncStorage.getItem("accessToken");
-        const dateStr = d.toISOString().split("T")[0];
+        if (!token) {
+          showToast?.("Session expired. Login again.", "error");
+          setSessions([]);
+          return;
+        }
+
+        const dateStr = selectedDate.toISOString().split("T")[0];
 
         const res = await axios.get(`${apiBase}/drive/by-date`, {
-          headers: token ? { Authorization: `Bearer ${token}` } : undefined,
+          headers: { Authorization: `Bearer ${token}` },
           params: { date: dateStr },
         });
 
-        const sessionsData = res.data?.sessions ?? res.data ?? [];
-        setSessions(Array.isArray(sessionsData) ? sessionsData : []);
+        const sessionsData = Array.isArray(res.data?.sessions)
+          ? res.data.sessions
+          : [];
+
+        setSessions(sessionsData);
       } catch (err) {
-        console.warn("Fetch Sessions error:", err);
+        console.error("Fetch Sessions error:", err);
         showToast?.("Failed to load sessions", "error");
         setSessions([]);
       } finally {
@@ -186,20 +144,13 @@ const DriveHistoryList: React.FC<Props> = ({
     [apiBase, showToast]
   );
 
-  /* TRIGGER LOAD WHEN MENU OPENS */
+
   useEffect(() => {
     if (show) fetchSessions(date);
   }, [show, date, fetchSessions]);
 
-  /* DATE CHANGED */
-  const onChangeDate = (_: any, selectedDate?: Date) => {
-    setShowPicker(false);
-    if (selectedDate) setDate(selectedDate);
-  };
-
   return (
     <View style={{ padding: 12, width: "100%" }}>
-      {/* DATE PICKER BUTTON */}
       <TouchableOpacity
         onPress={() => setShowPicker(true)}
         style={{
@@ -211,22 +162,18 @@ const DriveHistoryList: React.FC<Props> = ({
           borderColor: "#ddd",
         }}
       >
-        <Text style={{ fontSize: 14 }}>
-          Select Date: {date.toLocaleDateString()}
-        </Text>
+        <Text style={{ fontSize: 14 }}>Select Date: {date.toLocaleDateString()}</Text>
       </TouchableOpacity>
 
-      {/* DATE PICKER */}
       {showPicker && (
         <DateTimePicker
           value={date}
           mode="date"
           display={Platform.OS === "ios" ? "spinner" : "default"}
-          onChange={onChangeDate}
+          onChange={(_, selected) => selected && setDate(selected)}
         />
       )}
 
-      {/* LOADING */}
       {loading ? (
         <ActivityIndicator size="small" />
       ) : (
@@ -237,9 +184,7 @@ const DriveHistoryList: React.FC<Props> = ({
             <DriveHistoryItem
               item={item}
               expanded={expandedId === item.id}
-              onExpand={() =>
-                setExpandedId(expandedId === item.id ? null : item.id)
-              }
+              onExpand={() => setExpandedId(expandedId === item.id ? null : item.id)}
               onSelectSession={onSelectSession}
             />
           )}

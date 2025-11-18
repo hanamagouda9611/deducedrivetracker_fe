@@ -125,6 +125,7 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
 
   const [styleKey, setStyleKey] = useState<MapStyleKey>("osm");
   const [path, setPath] = useState<Coord[]>([]);
+  const [allHistoryTracks, setAllHistoryTracks] = useState<Coord[][]>([]);
   const [start, setStart] = useState<Coord | null>(null);
   const [end, setEnd] = useState<Coord | null>(null);
   const [currentCoord, setCurrentCoord] = useState<Coord | null>(null);
@@ -221,6 +222,23 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
             cameraRef.current?.fitBounds(pts[0], pts[pts.length - 1], 80, 80);
           } catch {}
         }, 250);
+      }
+      if (type === "displayAllTracks") {
+        const tracks = Array.isArray(payload) ? payload : [];
+
+        const smoothened = tracks.map((track: Coord[]) =>
+          track.length < 3 ? track : smoothPathChaikin(track, 2)
+        );
+
+        setAllHistoryTracks(smoothened);
+
+        // Fit map to whole data if possible
+        const flat = smoothened.flat();
+        if (flat.length >= 2) {
+          try {
+            cameraRef.current?.fitBounds(flat[0], flat[flat.length - 1], 120, 120);
+          } catch {}
+        }
       }
 
       if (type === "clear") {
@@ -513,6 +531,37 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
           </MapLibreGL.ShapeSource>
         )}
       </MapLibreGL.MapView>
+          {allHistoryTracks.map((trk, index) => {
+            if (!Array.isArray(trk) || trk.length < 2) return null;
+
+            const feature = {
+              type: "Feature",
+              properties: {},
+              geometry: {
+                type: "LineString",
+                coordinates: trk
+              }
+            } as GeoJSON.Feature; // 👈 add this cast
+
+            return (
+              <MapLibreGL.ShapeSource
+                key={`hist-${index}`}
+                id={`hist-${index}`}
+                shape={feature}
+              >
+                <MapLibreGL.LineLayer
+                  id={`hist-layer-${index}`}
+                  style={{
+                    lineColor: "#888",
+                    lineWidth: 3,
+                    lineJoin: "round",
+                    lineCap: "round",
+                  }}
+                />
+              </MapLibreGL.ShapeSource>
+            );
+          })}
+
 
       {/* UI Buttons */}
       <View style={styles.toggleContainer}>
