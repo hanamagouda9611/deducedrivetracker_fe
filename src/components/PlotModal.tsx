@@ -1,8 +1,8 @@
-// components/UploadModal.tsx
+// components/PlotModal.tsx
 import React, { useRef, useEffect } from "react";
 import { Modal, Animated, View, Text, TouchableOpacity, ActivityIndicator } from "react-native";
 
-const PlotModal = ({ visible, onClose, onPlot, uploading, theme }: any) => {
+const PlotModal = ({ visible, onClose, onPlot, ploting, theme }: any) => {
   const fade = useRef(new Animated.Value(0)).current;
 
   useEffect(() => {
@@ -62,7 +62,7 @@ const PlotModal = ({ visible, onClose, onPlot, uploading, theme }: any) => {
           >
             <TouchableOpacity
               onPress={close}
-              disabled={uploading}
+              disabled={ploting}
               style={{
                 backgroundColor: "#6c757d",
                 padding: 12,
@@ -74,7 +74,7 @@ const PlotModal = ({ visible, onClose, onPlot, uploading, theme }: any) => {
 
             <TouchableOpacity
               onPress={onPlot}
-              disabled={uploading}
+              disabled={ploting}
               style={{
                 backgroundColor: "#007bff",
                 padding: 12,
@@ -83,11 +83,11 @@ const PlotModal = ({ visible, onClose, onPlot, uploading, theme }: any) => {
                 alignItems: "center",
               }}
             >
-              {uploading && (
+              {ploting && (
                 <ActivityIndicator color="#fff" style={{ marginRight: 8 }} />
               )}
               <Text style={{ color: "#fff" }}>
-                {uploading ? "Processing..." : "Plot"}
+                {ploting ? "Processing..." : "Plot"}
               </Text>
             </TouchableOpacity>
           </View>

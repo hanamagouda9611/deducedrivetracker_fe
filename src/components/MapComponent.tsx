@@ -12,16 +12,19 @@ import {
 import MapLibreGL from "@maplibre/maplibre-react-native";
 import Geolocation from "@react-native-community/geolocation";
 import CompassHeading from "react-native-compass-heading";
+import Config from "react-native-config";
 
+const MAPTILER_KEY = Config.MAPTILER_KEY;
 
 MapLibreGL.setAccessToken(null);
 
+
 // Free MapTiler styles
 const MAP_STYLES = {
-  osm: "https://api.maptiler.com/maps/streets/style.json?key=I0C6jP3xRJoB6S3NWCnh",
-  satellite: "https://api.maptiler.com/maps/hybrid/style.json?key=I0C6jP3xRJoB6S3NWCnh",
-  dark: "https://api.maptiler.com/maps/darkmatter/style.json?key=I0C6jP3xRJoB6S3NWCnh",
-  terrain: "https://api.maptiler.com/maps/outdoor/style.json?key=I0C6jP3xRJoB6S3NWCnh",
+  osm: `https://api.maptiler.com/maps/streets/style.json?key=${MAPTILER_KEY}`,
+  satellite: `https://api.maptiler.com/maps/hybrid/style.json?key=${MAPTILER_KEY}`,
+  dark: `https://api.maptiler.com/maps/darkmatter/style.json?key=${MAPTILER_KEY}`,
+  terrain: `https://api.maptiler.com/maps/outdoor/style.json?key=${MAPTILER_KEY}`,
 } as const;
 
 const ICONS = {
@@ -36,6 +39,7 @@ const END_PIN_ICON = "https://img.icons8.com/color/48/marker.png";
 
 type MapStyleKey = keyof typeof MAP_STYLES;
 type Coord = [number, number];
+const INDIA_CENTER: Coord = [78.9629, 20.5937];
 
 type Props = {
   onMapReady: () => void;
@@ -122,7 +126,7 @@ const smoothPathChaikin = (pts: Coord[], iterations = 2): Coord[] => {
 
 const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) => {
   const cameraRef = useRef<any>(null);
-
+  const firstFixDone = useRef(false); 
   const [styleKey, setStyleKey] = useState<MapStyleKey>("osm");
   const [path, setPath] = useState<Coord[]>([]);
   const [allHistoryTracks, setAllHistoryTracks] = useState<Coord[][]>([]);
@@ -133,6 +137,7 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
   const watchId = useRef<number | null>(null);
 
   const [_heading, setHeading] = useState<number | null>(null);
+  const [viewMode, setViewMode] = useState<"live" | "history">("live");
 
   const [showMenu, setShowMenu] = useState(false);
   const slideAnim = useRef(new Animated.Value(0)).current;
@@ -144,6 +149,7 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
 
   const [isMoving, setIsMoving] = useState(false);
   const lastCoordRef = useRef<Coord | null>(null);
+  const lastUpdate = useRef<number>(0);
 
   const animateRetain = (to: number) => {
     Animated.timing(retainScale, {
@@ -212,6 +218,7 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
         const pts = Array.isArray(payload) ? payload : [];
         if (pts.length < 2) return;
 
+        setViewMode("history");
         setPath(pts);
         setStart(pts[0]);
         setEnd(pts[pts.length - 1]);
@@ -223,6 +230,7 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
           } catch {}
         }, 250);
       }
+
       if (type === "displayAllTracks") {
         const tracks = Array.isArray(payload) ? payload : [];
 
@@ -232,7 +240,6 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
 
         setAllHistoryTracks(smoothened);
 
-        // Fit map to whole data if possible
         const flat = smoothened.flat();
         if (flat.length >= 2) {
           try {
@@ -240,12 +247,16 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
           } catch {}
         }
       }
+      
+      if (type === "setHistoryMode") {
+        setViewMode("history");
+      }
 
       if (type === "clear") {
         setPath([]);
         setStart(null);
         setEnd(null);
-        setCurrentCoord(null);
+        setAllHistoryTracks([]);  
       }
 
       onMessage?.(msg);
@@ -265,43 +276,68 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
     }
   }, [handleMsg, refForward]);
 
-  // GPS Tracking
-  useEffect(() => {
-    watchId.current = Geolocation.watchPosition(
-      (pos) => {
-        const { latitude, longitude, speed } = pos.coords;
-        const coord: Coord = [longitude, latitude];
-        setCurrentCoord(coord);
 
-        const last = lastCoordRef.current;
-        const gpsSpeed = typeof speed === "number" ? speed : 0;
-        const moving =
-          gpsSpeed > 1 || (last && distanceBetween(last, coord) > 3);
+  // -------------📌 GPS Tracking — CLEAN & FIXED
+useEffect(() => {
+  watchId.current = Geolocation.watchPosition(
+    (pos) => {
+      const { latitude, longitude, speed } = pos.coords;
+      const coord: Coord = [longitude, latitude];
+      setCurrentCoord(coord);
 
-        lastCoordRef.current = coord;
-        setIsMoving(Boolean(moving));
+      const last = lastCoordRef.current;
+      const gpsSpeed = typeof speed === "number" ? speed : 0;
+      const moving =
+        gpsSpeed > 1 || (last && distanceBetween(last, coord) > 3);
+
+      lastCoordRef.current = coord;
+      setIsMoving(Boolean(moving));
+
+      if (!firstFixDone.current) {
+        firstFixDone.current = true;
 
         cameraRef.current?.setCamera({
           centerCoordinate: coord,
-          zoomLevel: zoom,
-          animationDuration: 600,
+          zoomLevel: 17,
+          animationDuration: 800,
         });
-      },
-      (err) => console.warn("GPS Error:", err),
-      {
-        enableHighAccuracy: true,
-        distanceFilter: 1,
-        interval: 2000,
-        fastestInterval: 1000,
+
+        return; 
       }
-    );
 
-    return () => {
-      if (watchId.current !== null) Geolocation.clearWatch(watchId.current);
-    };
-  }, [zoom]);
+      if (viewMode === "live" && lastCoordRef.current) {
+        if (Date.now() - lastUpdate.current > 600) {
+          cameraRef.current?.setCamera({
+            centerCoordinate: coord,
+            animationDuration: 400,
+          });
+          lastUpdate.current = Date.now();
+        }
+      }
 
-  // Heading (Rotational)
+    },
+
+    (err) => {
+      console.warn("GPS Error:", err);
+      setCurrentCoord((prev) => prev || null); 
+    },
+
+    {
+      enableHighAccuracy: true,
+      distanceFilter: 1,
+      interval: 1500,
+      fastestInterval: 800,
+    }
+  );
+
+ 
+  return () => {
+    if (watchId.current !== null) Geolocation.clearWatch(watchId.current);
+  };
+}, [viewMode]); 
+
+
+  // -------------------Heading (Rotational)
   useEffect(() => {
   let mounted = true;
 
@@ -315,7 +351,7 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
       cameraRef.current?.setCamera({
         centerCoordinate: currentCoord,
         zoomLevel: zoom,
-        bearing: heading,
+        // bearing: heading,
         animationDuration: 300,
       });
     }
@@ -328,7 +364,7 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
 }, [currentCoord, zoom, isMoving]);
 
 
-  // Reset Bearing when stopped
+  // -----------------Reset Bearing when stopped
   useEffect(() => {
     if (isMoving || !currentCoord) return;
     cameraRef.current?.setCamera({
@@ -406,30 +442,32 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
       }
     : null;
 
-  const handleRetainPress = () => {
+    const handleRetainPress = () => {
+    setViewMode("live");
+    firstFixDone.current = true; 
+
     const coord = currentCoord || start;
     if (!coord) return;
 
+    setZoom(17);
     cameraRef.current?.setCamera({
       centerCoordinate: coord,
-      zoomLevel: zoom,
+      zoomLevel: 17,
       animationDuration: 500,
     });
   };
 
+
   const handleZoomIn = () => {
-    const z = zoom + 1;
-    setZoom(z);
-    cameraRef.current?.setCamera({ zoomLevel: z, animationDuration: 250 });
+    setZoom((prev) => prev + 1);
   };
 
   const handleZoomOut = () => {
-    const z = zoom - 1;
-    setZoom(z);
-    cameraRef.current?.setCamera({ zoomLevel: z, animationDuration: 250 });
+    setZoom((prev) => prev - 1);
   };
 
   const borderTheme = { borderColor: getBorderColor(styleKey) };
+
 
   return (
     <View style={{ flex: 1 }}>
@@ -440,12 +478,13 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
         logoEnabled={false}
         attributionEnabled={false}
         compassEnabled={true}
+        onRegionWillChange={() => {}}
       >
         <MapLibreGL.Camera
-          ref={cameraRef}
-          zoomLevel={zoom}
-          followUserLocation={false}
-        />
+        ref={cameraRef}
+        centerCoordinate={currentCoord || undefined}
+      />
+
 
         {start && (
           <MapLibreGL.PointAnnotation id="s" coordinate={start}>
@@ -461,7 +500,7 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
           </MapLibreGL.PointAnnotation>
         )}
 
-        {currentCoord && (
+        {currentCoord !== null && Array.isArray(currentCoord) && (
           <MapLibreGL.PointAnnotation id="live" coordinate={currentCoord}>
             <View style={styles.liveMarkerWrapper}>
               <Animated.View
@@ -508,7 +547,7 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
             <MapLibreGL.LineLayer
               id="pathLine"
               style={{
-                lineColor: "#ff6b00",
+                lineColor: "#33BBFF",
                 lineWidth: 5,
                 lineJoin: "round",
                 lineCap: "round",
@@ -522,7 +561,7 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
             <MapLibreGL.LineLayer
               id="pathLineSmooth"
               style={{
-                lineColor: "#0080ff",
+                lineColor: "#0051FF",
                 lineWidth: 4,
                 lineJoin: "round",
                 lineCap: "round",
@@ -530,8 +569,7 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
             />
           </MapLibreGL.ShapeSource>
         )}
-      </MapLibreGL.MapView>
-          {allHistoryTracks.map((trk, index) => {
+        {allHistoryTracks.map((trk, index) => {
             if (!Array.isArray(trk) || trk.length < 2) return null;
 
             const feature = {
@@ -552,7 +590,7 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
                 <MapLibreGL.LineLayer
                   id={`hist-layer-${index}`}
                   style={{
-                    lineColor: "#888",
+                    lineColor: "#00C853",
                     lineWidth: 3,
                     lineJoin: "round",
                     lineCap: "round",
@@ -561,8 +599,9 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
               </MapLibreGL.ShapeSource>
             );
           })}
+      </MapLibreGL.MapView>
 
-
+  
       {/* UI Buttons */}
       <View style={styles.toggleContainer}>
         <TouchableOpacity
@@ -616,6 +655,29 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
         )}
       </View>
 
+      {/* Waiting for GPS Popup */}
+        {!currentCoord && (
+          <View style={{
+            position: "absolute",
+            bottom: 25,
+            left: 0,
+            right: 0,
+            alignItems: "center",
+            zIndex: 999,
+          }}>
+            <View style={{
+              backgroundColor: "rgba(0,0,0,0.75)",
+              paddingVertical: 8,
+              paddingHorizontal: 16,
+              borderRadius: 20,
+            }}>
+              <Text style={{ color: "#fff", fontSize: 14, fontWeight: "500" }}>
+                Waiting for GPS...
+              </Text>
+            </View>
+          </View>
+        )}
+        
       <Animated.View style={[styles.retainWrapper, { transform: [{ scale: retainScale }] }]}>
         <TouchableOpacity
           activeOpacity={0.85}

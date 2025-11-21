@@ -13,12 +13,12 @@ const styles = StyleSheet.create({
      ============================ */
   header: {
     width: "100%",
-    height: 90,                     // 🔥 FIXED HEIGHT
+    height: 90,                     
     flexDirection: "row",
-    alignItems: "flex-end",         // 🔥 Align items at bottom
+    alignItems: "flex-end",         
     justifyContent: "space-between",
     paddingHorizontal: 15,
-    paddingBottom: 10,              // 🔥 ensures spacing from bottom
+    paddingBottom: 10,              
     borderBottomWidth: 0.7,
   },
 
@@ -57,7 +57,7 @@ const styles = StyleSheet.create({
      ============================ */
   footer: {
     width: "100%",
-    height: 90,                   // 🔥 FIXED HEIGHT
+    height: 90,                   
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "space-around",
@@ -96,7 +96,7 @@ const styles = StyleSheet.create({
      ============================ */
   popupMenu: {
     position: "absolute",
-    top: 85,
+    top: 110,
     left: 10,
     right: 10,
     borderRadius: 10,

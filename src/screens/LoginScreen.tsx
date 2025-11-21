@@ -34,6 +34,7 @@ const LoginScreen = () => {
   const navigation = useNavigation<LoginScreenNavigationProp>();
   const [employeeId, setEmployeeId] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [focusedInput, setFocusedInput] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [modalVisible, setModalVisible] = useState(false);
@@ -205,19 +206,42 @@ const handleLogin = async () => {
           />
 
           {/* Password Input */}
+        <View style={{ width: width * 0.75, marginBottom: 18 }}>
           <TextInput
             style={[
               styles.input,
-              focusedInput === 'password' && styles.inputFocused,
+              focusedInput === "password" && styles.inputFocused,
+              { paddingRight: 45 }, // space for eye icon
             ]}
             placeholder="Password"
             placeholderTextColor="rgba(255,255,255,0.7)"
             value={password}
             onChangeText={setPassword}
-            onFocus={() => setFocusedInput('password')}
+            onFocus={() => setFocusedInput("password")}
             onBlur={() => setFocusedInput(null)}
-            secureTextEntry
+            secureTextEntry={!showPassword}
           />
+
+          <TouchableOpacity
+            onPress={() => setShowPassword((prev) => !prev)}
+            style={{
+              position: "absolute",
+              right: 12,
+              top: 12,
+              padding: 4,
+            }}
+          >
+            <Image
+              source={{
+                uri: showPassword
+                  ? "https://img.icons8.com/ios-filled/50/visible.png"
+                  : "https://img.icons8.com/ios-filled/50/closed-eye.png",
+              }}
+              style={{ width: 22, height: 22, tintColor: "white" }}
+            />
+          </TouchableOpacity>
+        </View>
+
 
           {/* Login Button */}
           <Animated.View style={{ transform: [{ scale: scaleAnim }], width: '100%' }}>

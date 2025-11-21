@@ -16,7 +16,7 @@ import {
 // import MapViewComponent from "../components/MapViewComponent";
 import MapComponent from "../components/MapComponent";
 import DriveHistoryList from "../components/DriveHistoryList";
-import UploadModal from "../components/PlotModal";
+import PlotModal from "../components/PlotModal";
 import ToastComponent from "../components/ToastComponent";
 import useToast from "../utils/useToast";
 import AsyncStorage from "@react-native-async-storage/async-storage";
@@ -72,10 +72,11 @@ const HomeScreen: React.FC = () => {
 
   const [currentDriveTrack, setCurrentDriveTrack] = useState<any[]>([]);
   const [driveStopped, setDriveStopped] = useState(false);
+  const [stopFailed, setStopFailed] = useState(false);
 
-  const [uploadModalVisible, setUploadModalVisible] = useState(false);
-  const [uploading, _setUploading] = useState(false);
-
+  const [plotModalVisible, setPlotModalVisible] = useState(false);
+  const [ploting, _setPloting] = useState(false);
+  const [isPlotted, setIsPlotted] = useState(false);
   const [logoutModalVisible, setLogoutModalVisible] = useState(false);
 
   const [todayKm, setTodayKm] = useState("0.0");
@@ -95,7 +96,7 @@ const HomeScreen: React.FC = () => {
 
   useEffect(() => {
     if (!isMapReady) return;
-
+    loadAllSessionsOnMap();
     postToMap({
       type: "modeChange",
       payload: { isDarkMode },
@@ -167,8 +168,8 @@ const HomeScreen: React.FC = () => {
         headers: { Authorization: `Bearer ${token}` },
       });
 
-      setTotalKm(String(resTotal.data.total_km ?? 0));
-      setTodayKm(String(resToday.data.today_km ?? 0));
+    setTotalKm(Number(resTotal.data.total_km ?? 0).toFixed(2));
+    setTodayKm(Number(resToday.data.today_km ?? 0).toFixed(2));
     } catch (err) {
       console.warn("stats error:", err);
     }
@@ -177,6 +178,38 @@ const HomeScreen: React.FC = () => {
   useEffect(() => {
     if (userInfo?.employee_id) fetchStats();
   }, [userInfo, fetchStats]);
+
+  /** All session on map  */
+  const loadAllSessionsOnMap = useCallback(async () => {
+    try {
+      const res = await axios.get(`${API_BASE}/drive/session/all`);
+      const allSessions: any[] = res.data?.sessions || [];
+
+      const allTracks: [number, number][][] = allSessions.map((ses: any) =>
+      Array.isArray(ses.points)
+        ? ses.points
+            .map((p: DrivePoint): [number, number] => {
+              const lng = Number(p.longitude ?? p.lng);
+              const lat = Number(p.latitude ?? p.lat);
+              return [lng, lat];
+            })
+            .filter(([lng, lat]: [number, number]) => !isNaN(lng) && !isNaN(lat))
+        : []
+    );
+
+
+      // 👇 Do NOT clear map — we always want to keep these background lines
+      postToMap({
+        type: "displayAllTracks",
+        payload: allTracks,
+      });
+
+    } catch (err) {
+      console.warn("All sessions fetch error:", err);
+      showToast("Unable to load all sessions", "error");
+    }
+  }, [postToMap, showToast]);
+
 
   /** SELECT SESSION - Public */
 interface DrivePoint {
@@ -189,12 +222,17 @@ interface DrivePoint {
 
 /** SELECT SESSION */
 const handleSelectSession = useCallback(
-  async (sessionId: number) => {
+  async (sessionId: number, mode?: string) => {
     try {
       const res = await axios.get(`${API_BASE}/drive/session/all`);
       const allSessions: any[] = res.data?.sessions || [];
 
-      // 🔍 FIND SELECTED SESSION
+      if (mode === "clear") {
+        postToMap({ type: "clearSelected" });
+        showToast("Cleared", "info");
+        return;
+      }
+
       const selected = allSessions.find((s) => s.id === sessionId);
 
       if (!selected) {
@@ -202,46 +240,31 @@ const handleSelectSession = useCallback(
         return;
       }
 
-      // 🔹 EXTRACT & NORMALIZE SELECTED PATH
-      const points: DrivePoint[] = Array.isArray(selected.points) ? selected.points : [];
-      const norm: [number, number][] = points
-        .map((p: DrivePoint): [number, number] => {
-          const lng = Number(p.longitude ?? p.lng);
-          const lat = Number(p.latitude ?? p.lat);
-          return [lng, lat];
-        })
-        .filter(([lng, lat]: [number, number]) => !isNaN(lng) && !isNaN(lat));
+      const points: DrivePoint[] = selected.points || [];
+      const norm = points
+      .map((p: DrivePoint) => {
+        const lng = Number(p.longitude ?? p.lng);
+        const lat = Number(p.latitude ?? p.lat);
 
-      // ❗ NEW CODE — BUILD ALL TRACKS
-      const allTracks: [number, number][][] = allSessions.map((ses: any) =>
-        Array.isArray(ses.points)
-          ? ses.points
-              .map((p: any): [number, number] => {
-                const lng: number = Number(p.longitude ?? p.lng);
-                const lat: number = Number(p.latitude ?? p.lat);
-                return [lng, lat];
-              })
-              .filter(([lng, lat]: [number, number]) => !isNaN(lng) && !isNaN(lat))
-          : []
-      );
+        if (isNaN(lng) || isNaN(lat)) return null;
 
-      // 📡 SEND ALL TRACKS TO MAP (smooth happens in MapComponent)
-      postToMap({
-        type: "displayAllTracks",
-        payload: allTracks
-      });
+        return [lng, lat] as [number, number];
+      })
+      .filter((c): c is [number, number] => Array.isArray(c));
 
-      // ⛔ If selected track empty, stop
+
       if (norm.length === 0) {
-        showToast("No valid track points found", "info");
+        showToast("No track points found", "info");
         return;
       }
 
-      // CLEAR PREVIOUS MAP DATA
-      postToMap({ type: "clear" });
+      postToMap({ type: "setHistoryMode" });
 
-      // DISPLAY SELECTED SESSION WITH FIT
-      postToMap({ type: "displayTrackAndFit", payload: norm });
+      // 🚀 Show selected route only on the top layer
+      postToMap({
+        type: "displayTrackAndFit",
+        payload: norm,
+      });
 
     } catch (err) {
       console.warn("Session fetch error:", err);
@@ -252,7 +275,7 @@ const handleSelectSession = useCallback(
 );
 
 
-  /** LOCATION PERMISSION */
+/** LOCATION PERMISSION */
   const requestLocationPermission = useCallback(async () => {
     if (Platform.OS === "android") {
       const granted = await PermissionsAndroid.request(
@@ -263,7 +286,8 @@ const handleSelectSession = useCallback(
     return true;
   }, []);
 
-  /** START TRACKING */
+
+/** START TRACKING */
   const startTracking = useCallback(async () => {
     if (tracking) return;
 
@@ -291,7 +315,9 @@ const handleSelectSession = useCallback(
 
     setCurrentDriveTrack([]);
     setTracking(true);
-    setDriveStopped(false);
+    setDriveStopped(false); 
+    setLogoutModalVisible(false);
+    setIsPlotted(false);
 
     showToast("Drive started", "success");
 
@@ -303,10 +329,12 @@ const handleSelectSession = useCallback(
           timestamp: Date.now(),
         };
         setCurrentDriveTrack([loc]);
+        setTimeout(() => {
         postToMap({
           type: "startLive",
           payload: { startLocation: [loc.lat, loc.lng] },
-        });
+          });
+        }, 300);
       },
       () => showToast("GPS error", "error"),
       { enableHighAccuracy: true }
@@ -314,6 +342,7 @@ const handleSelectSession = useCallback(
 
     watchIdRef.current = Geolocation.watchPosition(
       async (pos) => {
+        setLogoutModalVisible(false);
         const p = {
           lat: pos.coords.latitude,
           lng: pos.coords.longitude,
@@ -340,58 +369,102 @@ const handleSelectSession = useCallback(
     );
   }, [postToMap, requestLocationPermission, tracking, showToast, userInfo, currentSessionId]);
 
+
   /** STOP TRACKING */
-const stopTracking = useCallback(async () => {
-  if (watchIdRef.current != null) {
-    Geolocation.clearWatch(watchIdRef.current);
-    watchIdRef.current = null;
-  }
+  const stopTracking = useCallback(async () => {
+    if (watchIdRef.current != null) {
+      Geolocation.clearWatch(watchIdRef.current);
+      watchIdRef.current = null;
+    }
 
-  setTracking(false);
-  setDriveStopped(true);
-
-  if (!currentSessionId) {
-    showToast("Session missing", "error");
-    return;
-  }
-
-  try {
-    const token = await AsyncStorage.getItem("accessToken");
-
-    await axios.post(
-      `${API_BASE}/drive/stop`,
-      { session_id: currentSessionId }, // <-- send body
-      { headers: { Authorization: `Bearer ${token}` } } // <-- pass token
-    );
-
-    showToast("Drive stopped", "info");
-  } catch (err: any) {
-    console.log("STOP ERROR:", err?.response?.data || err);
-    showToast("Stop failed", "error");
-  }
-}, [currentSessionId, showToast]);
-
-
-  /** PLOT DRIVE (instead of upload) */
-  const handleUpload = useCallback(() => {
-    if (currentDriveTrack.length < 2) {
-      showToast("Not enough points", "error");
+    if (!currentSessionId) {
+      showToast("Session missing", "error");
       return;
     }
 
-    const formatted = currentDriveTrack.map((p) => [p.lng, p.lat]);
-    postToMap({
-      type: "displayTrackAndFit",
-      payload: formatted,
+    try {
+      const token = await AsyncStorage.getItem("accessToken");
+
+      await axios.post(
+        `${API_BASE}/drive/stop?session_id=${currentSessionId}`,
+        {},
+        { headers: { Authorization: `Bearer ${token}` } }
+      );
+
+      // Stop success
+      setTracking(false);
+      setDriveStopped(true);
+      showToast("Drive stopped", "info");
+    } catch (err) {
+      setTracking(true);
+      setDriveStopped(false);
+      showToast("Stop failed, try again", "error");
+    }
+  }, [currentSessionId, showToast]);
+
+
+
+  /** PLOT DRIVE (instead of plot) */
+  const handlePlot = useCallback(async () => {
+  try {
+    const token = await AsyncStorage.getItem("accessToken");
+    if (!token) {
+      showToast("Session expired. Login again.", "error");
+      return;
+    }
+
+    // 📅 Today date: YYYY-MM-DD
+    const dateStr = new Date().toISOString().split("T")[0];
+
+    // 🔥 Fetch Today’s Sessions
+    const res = await axios.get(`${API_BASE}/drive/by-date`, {
+      headers: { Authorization: `Bearer ${token}` },
+      params: { date: dateStr },
     });
 
-    setUploadModalVisible(false);
-    setDriveStopped(false);
+    const sessions = Array.isArray(res.data?.sessions) ? res.data.sessions : [];
+
+    if (sessions.length === 0) {
+      showToast("No drive sessions found for today", "info");
+      return;
+    }
+
+    // 🔹 Convert into gray-track format
+    const allTracks: [number, number][][] = sessions.map((ses: any) =>
+      Array.isArray(ses.points)
+        ? ses.points
+            .map((p: DrivePoint): [number, number] => {
+            const lng: number = Number(p.longitude ?? p.lng);
+            const lat: number = Number(p.latitude ?? p.lat);
+            return [lng, lat];
+            })
+            .filter(([lng, lat]: [number, number]) => !isNaN(lng) && !isNaN(lat))
+
+        : []
+    );
+
+    // 🚀 Show ALL today tracks in grey + fit bounds
+    postToMap({
+      type: "displayAllTracks",
+      payload: allTracks,
+    });
+
+    showToast("Today's drive plotted successfully", "success");
+
+     // 🔄 Correct UI state after plot
+    setPlotModalVisible(false);
+    setDriveStopped(false);     // 👈 Show Start/Stop buttons again
+    setTracking(false);         // 👈 Ensure no active tracking blocks logout
+    setStopFailed(false);       // 👈 Ensure footer does not show Plot again
     setCurrentDriveTrack([]);
     setCurrentSessionId(null);
+    setIsPlotted(true);   
+  } catch (err) {
+    console.log("Plot error:", err);
+    showToast("Failed to plot today's drive", "error");
+  }
+}, [postToMap, showToast]);
 
-    showToast("Drive Plotted Successfully", "success");
-  }, [currentDriveTrack, postToMap, showToast]);
 
   /** LOGOUT */
   const handleLogout = async () => {
@@ -455,14 +528,31 @@ const stopTracking = useCallback(async () => {
           </View>
         </View>
 
-        <TouchableOpacity onPress={() => setLogoutModalVisible(true)}>
-          <Image
-            source={{
-              uri: "https://img.icons8.com/ios-filled/50/ffffff/logout-rounded.png",
-            }}
-            style={[styles.icon, { tintColor: theme.icon }]}
-          />
-        </TouchableOpacity>
+        <TouchableOpacity
+          onPress={() => {
+          if (tracking) {
+            showToast("Please stop the drive first", "error");
+            return;
+          }
+          if (driveStopped && !isPlotted) {
+            showToast("Please plot the drive first", "error");
+            return;
+          }
+          if (!isPlotted) {
+            showToast("Please plot the drive first", "error");
+            return;
+          }
+          setLogoutModalVisible(true);
+        }}
+        >
+        <Image
+          source={{
+            uri: "https://img.icons8.com/ios-filled/50/ffffff/logout-rounded.png",
+          }}
+          style={[styles.icon, { tintColor: theme.icon }]}
+        />
+      </TouchableOpacity>
+
       </View>
 
       {/* MENU */}
@@ -502,7 +592,11 @@ const stopTracking = useCallback(async () => {
           <DriveHistoryList
             apiBase={API_BASE}
             show={menuVisible}
-            onSelectSession={handleSelectSession}
+            onSelectSession={(id, mode) => {
+              setMenuVisible(false);        // 🔥 CLOSE MENU
+              handleSelectSession(id, mode);
+            }}
+
             showToast={(m, t) => showToast(m, t)}
           />
         </Animated.View>
@@ -518,56 +612,48 @@ const stopTracking = useCallback(async () => {
       </View>
 
       {/* FOOTER */}
-      <View
-        style={[
-          styles.footer,
-          { backgroundColor: theme.footer, borderTopColor: theme.border },
-        ]}
-      >
-        {!driveStopped ? (
-          <>
-            <TouchableOpacity
-              onPress={stopTracking}
-              disabled={!tracking}
-              style={[styles.stopButton, { backgroundColor: theme.buttonStop }]}
-            >
-              <Text style={[styles.buttonText, { color: "#fff" }]}>
-                ⏹ Stop
-              </Text>
-            </TouchableOpacity>
-
-            <TouchableOpacity
-              onPress={startTracking}
-              disabled={tracking}
-              style={[styles.startButton, { backgroundColor: theme.buttonStart }]}
-            >
-              <Text style={[styles.buttonText, { color: "#fff" }]}>
-                {tracking ? "Tracking..." : "▶ Start"}
-              </Text>
-            </TouchableOpacity>
-          </>
-        ) : (
+      <View style={[styles.footer, { backgroundColor: theme.footer }]}>
+      {driveStopped && !stopFailed ? (
+        <TouchableOpacity
+          onPress={() => setPlotModalVisible(true)}
+          style={[styles.startButton, { backgroundColor: theme.buttonStart }]}
+        >
+          <Text style={[styles.buttonText, { color: "#fff" }]}>📤 Plot Drive</Text>
+        </TouchableOpacity>
+      ) : (
+        <>
           <TouchableOpacity
-            onPress={() => setUploadModalVisible(true)}
+            onPress={stopTracking}
+            disabled={!tracking}
+            style={[styles.stopButton, { backgroundColor: theme.buttonStop }]}
+          >
+            <Text style={[styles.buttonText, { color: "#fff" }]}>⏹ Stop</Text>
+          </TouchableOpacity>
+
+          <TouchableOpacity
+            onPress={startTracking}
+            disabled={tracking}
             style={[styles.startButton, { backgroundColor: theme.buttonStart }]}
           >
             <Text style={[styles.buttonText, { color: "#fff" }]}>
-              📤 Plot Drive
+              {tracking ? "Tracking..." : "▶ Start"}
             </Text>
           </TouchableOpacity>
-        )}
-      </View>
+        </>
+      )}
+    </View>
+
 
       {/* TOAST */}
       <ToastComponent toast={toast} fadeAnim={fadeAnim} />
 
       {/* UPLOAD MODAL */}
-      <UploadModal
-        visible={uploadModalVisible}
-        uploading={uploading}
+      <PlotModal
+        visible={plotModalVisible}
+        ploting={ploting}
         theme={{ background: theme.card, text: theme.text }}
-        onClose={() => setUploadModalVisible(false)}
-        onUpload={handleUpload}
+        onClose={() => setPlotModalVisible(false)}
+        onPlot={handlePlot}
       />
 
       {/* LOGOUT MODAL */}
