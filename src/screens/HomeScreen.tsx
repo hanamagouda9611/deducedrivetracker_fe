@@ -105,7 +105,7 @@ const HomeScreen: React.FC = () => {
   }, [isDarkMode, isMapReady, postToMap]);
 
 
-  /** LOAD USER */
+  /** ---------------LOAD USER------------------ */
   useEffect(() => {
     const loadUser = async () => {
       try {
@@ -128,7 +128,7 @@ const HomeScreen: React.FC = () => {
     loadUser();
   }, [navigation, showToast]);
 
-  /** ANDROID BACK BUTTON */
+  /** --------------ANDROID BACK BUTTON---------- */
   useEffect(() => {
     const backAction = () => {
       BackHandler.exitApp();
@@ -153,10 +153,10 @@ const HomeScreen: React.FC = () => {
     }).start();
   };
 
-  /** MAP READY */
+  /** ----------- MAP READY ---------- */
   const onMapReady = useCallback(() => setIsMapReady(true), []);
 
-  /** STATS */
+  /** -------- DRIVE STATISTICS ---------- */
   const fetchStats = useCallback(async () => {
     try {
       const token = await AsyncStorage.getItem("accessToken");
@@ -180,7 +180,7 @@ const HomeScreen: React.FC = () => {
     if (userInfo?.employee_id) fetchStats();
   }, [userInfo, fetchStats]);
 
-  /** All session on map  */
+  /** --------------- ALL SESSIONS ON MAP -------------- */
   const loadAllSessionsOnMap = useCallback(async () => {
     try {
       const res = await axios.get(`${API_BASE}/drive/session/all`);
@@ -209,7 +209,7 @@ const HomeScreen: React.FC = () => {
   }, [postToMap, showToast]);
 
 
-  /** SELECT SESSION - Public */
+/** ----------- SELECT SESSIONS ON MAP -------------- */
   interface DrivePoint {
     latitude?: number | string;
     longitude?: number | string;
@@ -218,7 +218,6 @@ const HomeScreen: React.FC = () => {
     [key: string]: any;
   }
 
-/** SELECT SESSION */
 const handleSelectSession = useCallback(
   async (sessionId: number, mode?: string) => {
     try {
@@ -258,7 +257,6 @@ const handleSelectSession = useCallback(
 
       postToMap({ type: "setHistoryMode" });
 
-      // 🚀 Show selected route only on the top layer
       postToMap({
         type: "displayTrackAndFit",
         payload: norm,
@@ -273,7 +271,7 @@ const handleSelectSession = useCallback(
 );
 
 
-/** LOCATION PERMISSION */
+/** -----------LOCATION PERMISSION--------------- */
   const requestLocationPermission = useCallback(async () => {
     if (Platform.OS === "android") {
       const granted = await PermissionsAndroid.request(
@@ -285,7 +283,7 @@ const handleSelectSession = useCallback(
   }, []);
 
 
-/** START TRACKING */
+/** --------------START TRACKING-------------- */
   const startTracking = useCallback(async () => {
     if (tracking) return;
 
@@ -381,7 +379,7 @@ const handleSelectSession = useCallback(
   }, [postToMap, requestLocationPermission, tracking, showToast, userInfo, currentSessionId]);
 
 
-  /** STOP TRACKING */
+  /** --------------------STOP TRACKING-----------------*/
   const stopTracking = useCallback(async () => {
     if (watchIdRef.current != null) {
       Geolocation.clearWatch(watchIdRef.current);
@@ -415,7 +413,7 @@ const handleSelectSession = useCallback(
 
 
 
-  /** 🛰️ PLOT DRIVE (show ALL sessions in grey) */
+  /** ----------------🛰️ PLOT DRIVE (show ALL sessions in grey)------------------ */
     const handlePlot = useCallback(async () => {
     try {
       const token = await AsyncStorage.getItem("accessToken");
@@ -424,7 +422,6 @@ const handleSelectSession = useCallback(
         return;
       }
 
-      // today date only
       const dateStr = new Date().toISOString().split("T")[0];
 
       const res = await axios.get(`${API_BASE}/drive/by-date`, {
@@ -445,7 +442,7 @@ const handleSelectSession = useCallback(
           : []
       );
 
-      // SEND TO MAP
+      // --------------SEND TO MAP------------
       postToMap({
         type: "displayTodayTrack",
         payload: todayTracks,
@@ -469,7 +466,7 @@ const handleSelectSession = useCallback(
 
 
 
-  /** LOGOUT */
+  /**--------------LOGOUT----------------*/
   const handleLogout = async () => {
     await AsyncStorage.removeItem("accessToken");
     await AsyncStorage.removeItem("userInfo");
@@ -481,7 +478,7 @@ const handleSelectSession = useCallback(
     );
   };
 
-  /** MAP MESSAGE */
+  /** -------------MAP MESSAGE------------- */
   const onWebMessage = useCallback((event: any) => {
     try {
       const msg = JSON.parse(event.nativeEvent.data);
@@ -598,7 +595,7 @@ const handleSelectSession = useCallback(
             apiBase={API_BASE}
             show={menuVisible}
             onSelectSession={(id, mode) => {
-              setMenuVisible(false);        // 🔥 CLOSE MENU
+              setMenuVisible(false);       
               handleSelectSession(id, mode);
             }}
 

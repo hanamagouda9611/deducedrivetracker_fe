@@ -33,12 +33,10 @@ const ICONS = {
   terrain: "https://img.icons8.com/color/48/mountain.png",
 } as const;
 
-// const START_PIN_ICON = "https://img.icons8.com/color/48/filled-flag.png";
-// const END_PIN_ICON = "https://img.icons8.com/color/48/marker.png";
+
 
 type MapStyleKey = keyof typeof MAP_STYLES;
 type Coord = [number, number];
-const INDIA_CENTER: Coord = [78.9629, 20.5937];
 
 type Props = {
   onMapReady: () => void;
@@ -136,6 +134,7 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
   const [currentCoord, setCurrentCoord] = useState<Coord | null>(null);
   const [zoom, setZoom] = useState<number>(15);
   const watchId = useRef<number | null>(null);
+  const [mapCenterCoord, setMapCenterCoord] = useState<Coord | null>(null);
 
   const [_heading, setHeading] = useState<number | null>(null);
   const [viewMode, setViewMode] = useState<"live" | "history">("live");
@@ -164,6 +163,7 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
     }).start();
   };
 
+  // -------------TOGGLE MENU-----------------
   const toggleMenu = () => {
     const opening = !showMenu;
     setShowMenu(opening);
@@ -184,6 +184,7 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
     ]).start();
   };
 
+  //-------------- LIVE,COORD,TRACK FIT----------------
   const handleMsg = useCallback(
     (msg: any) => {
       const { type, payload } = msg || {};
@@ -231,7 +232,6 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
         setHighlightedPath(pts);
         setStart(pts[0]);
         setEnd(pts[pts.length - 1]);
-        setCurrentCoord(pts[pts.length - 1]); 
 
         setTimeout(() => {
           try {
@@ -317,7 +317,7 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
     }
   }, [handleMsg, refForward]);
 
-// ripple animation loop (Google-like)
+// -------------------ripple animation loop (Google-like)
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
@@ -336,7 +336,7 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
     ).start();
   }, [rippleAnim]);
 
-  // -------------📌 GPS Tracking — CLEAN & FIXED
+  // -------------📌 GPS Tracking — CLEAN & FIXED----------------
   useEffect(() => {
     watchId.current = Geolocation.watchPosition(
       (pos) => {
@@ -368,14 +368,14 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
           return;
         }
 
-        // After first fix → center only when following
-        if (isFollowing) {
-          cameraRef.current?.setCamera({
-            centerCoordinate: coord,
-            animationDuration: 150,
-            animationMode: "ease",
-          });
-        }
+        if (isFollowing && viewMode === "live") {
+        setMapCenterCoord(coord);  // update center
+        cameraRef.current?.setCamera({
+          centerCoordinate: coord,
+          animationDuration: 150,
+          animationMode: "ease",
+        });
+      }
       },
 
       (err) => {
@@ -397,7 +397,7 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
   }, []);
  
 
-  // -------------------Heading (Rotational)
+  // -------------------Heading (Rotational)----------------
   useEffect(() => {
     let mounted = true;
 
@@ -407,15 +407,15 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
       if (!mounted) return;
       setHeading(heading);
 
-      if (isMoving && currentCoord) {
-        cameraRef.current?.setCamera({
-          centerCoordinate: currentCoord,
-          zoomLevel: zoom,
-          // bearing: heading,
-          animationDuration: CAMERA_ANIM,
-          animationMode: "ease",
-        });
-      }
+      if (viewMode === "live" && isMoving && currentCoord) {
+      cameraRef.current?.setCamera({
+        centerCoordinate: currentCoord,
+        zoomLevel: zoom,
+        animationDuration: CAMERA_ANIM,
+        animationMode: "ease",
+      });
+    }
+
     });
 
     return () => {
@@ -424,21 +424,25 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
     };
   }, [currentCoord, zoom, isMoving]);
 
-  // -----------------Smooth zoom updates (no blinking)
+  // -----------------Smooth zoom updates (no blinking)-----------------
   useEffect(() => {
-    if (!cameraRef.current || !currentCoord) return;
+    if (!cameraRef.current) return;
+    if (!mapCenterCoord) return;  
 
     cameraRef.current.setCamera({
-      centerCoordinate: currentCoord,
+      centerCoordinate: mapCenterCoord,
       zoomLevel: zoom,
-      animationDuration: 500,
+      animationDuration: 400,
       animationMode: "ease",
     });
-  }, [zoom]);
+  }, [zoom, mapCenterCoord]);
 
-  // -----------------Reset Bearing when stopped
+
+  // -----------------Reset Bearing when stopped-----------------
   useEffect(() => {
+    if (viewMode === "history") return;
     if (isMoving || !currentCoord) return;
+
     cameraRef.current?.setCamera({
       centerCoordinate: currentCoord,
       zoomLevel: zoom,
@@ -448,7 +452,7 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
     });
   }, [isMoving, currentCoord, zoom]);
 
-  // Pulse Animation
+  // -----------Pulse Animation
   useEffect(() => {
     Animated.loop(
       Animated.sequence([
@@ -485,27 +489,28 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
   }, [pulse1, pulse2]);
 
 
-    // smoothed live path for rendering (Chaikin)
+    // --------------smoothed live path for rendering (Chaikin)-------------
     const smoothLivePath = React.useMemo(
       () => (livePath.length < 3 ? livePath : smoothPathChaikin(livePath, 2)),
       [livePath]
     );
 
-    // smoothed highlighted session path
+    // -----------------smoothed highlighted session path--------------
     const smoothHighlightedPath = React.useMemo(
       () => (highlightedPath.length < 3 ? highlightedPath : smoothPathChaikin(highlightedPath, 2)),
       [highlightedPath]
     );
 
+  // -----------------circleFeature-------------
+    const circleFeature: any = currentCoord
+      ? {
+          type: "Feature",
+          properties: {},
+          geometry: { type: "Polygon", coordinates: [createCircle(currentCoord, 100)] },
+        }
+      : null;
 
-  const circleFeature: any = currentCoord
-    ? {
-        type: "Feature",
-        properties: {},
-        geometry: { type: "Polygon", coordinates: [createCircle(currentCoord, 100)] },
-      }
-    : null;
-
+  // -----------------RETAIN BUTTON-----------------
    const handleRetainPress = () => {
     const coord = currentCoord || start || end;
     if (!coord) return;
@@ -521,6 +526,7 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
     });
   };
 
+  // -----------------ZOOM-----------------
   const handleZoomIn = () => {
     setZoom((prev) => prev + 1);
   };
@@ -559,9 +565,6 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
       >
         <MapLibreGL.Camera
         ref={cameraRef}
-        centerCoordinate={currentCoord || undefined}
-        // followUserLocation={true}
-        // followZoomLevel={17}
       />
 
         {start && (
