@@ -563,7 +563,7 @@ const handleSelectSession = useCallback(
         <Animated.View
           style={{
             position: "absolute",
-            top: 80,
+            top: 90,
             left: 10,
             right: 10,
             backgroundColor: theme.card,
@@ -581,6 +581,7 @@ const handleSelectSession = useCallback(
           <Text style={{ color: theme.text }}>Today: {todayKm} km</Text>
           <Text style={{ color: theme.text }}>Total: {totalKm} km</Text>
 
+          <View style={{height: 1,backgroundColor: "#ccc",marginVertical: 8,}}/>
           <View
             style={{
               flexDirection: "row",
@@ -592,6 +593,7 @@ const handleSelectSession = useCallback(
             <Switch value={isDarkMode} onValueChange={setIsDarkMode} />
           </View>
 
+          <View style={{height: 1,backgroundColor: "#ccc",marginVertical: 8,}}/>
           <DriveHistoryList
             apiBase={API_BASE}
             show={menuVisible}

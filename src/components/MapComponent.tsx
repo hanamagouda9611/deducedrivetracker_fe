@@ -223,46 +223,48 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
       }
 
       if (type === "displayTrackAndFit") {
-          const pts = Array.isArray(payload) ? payload : [];
-          if (pts.length < 2) return;
+        const pts = Array.isArray(payload) ? payload : [];
+        if (pts.length < 2) return;
 
-          setViewMode("history");
-          setHighlightedPath(pts);
-          setStart(pts[0]);
-          setEnd(pts[pts.length - 1]);
-          setCurrentCoord(pts[pts.length - 1]);
+        setViewMode("history");
+        setIsFollowing(false);  
+        setHighlightedPath(pts);
+        setStart(pts[0]);
+        setEnd(pts[pts.length - 1]);
+        setCurrentCoord(pts[pts.length - 1]); 
 
-          setTimeout(() => {
-            try {
-              const [minLng, minLat] = pts[0];
-              const [maxLng, maxLat] = pts[pts.length - 1];
+        setTimeout(() => {
+          try {
+            const lngs = pts.map(p => p[0]);
+            const lats = pts.map(p => p[1]);
 
-              // 1️⃣ CENTER of route
-              const centerLng = (minLng + maxLng) / 2;
-              const centerLat = (minLat + maxLat) / 2;
+            const minLng = Math.min(...lngs);
+            const maxLng = Math.max(...lngs);
+            const minLat = Math.min(...lats);
+            const maxLat = Math.max(...lats);
 
-              // 2️⃣ Find best zoom based on distance (simple auto-zoom)
-              const dx = Math.abs(maxLng - minLng);
-              const dy = Math.abs(maxLat - minLat);
-              const maxDiff = Math.max(dx, dy);
+            const centerLng = (minLng + maxLng) / 2;
+            const centerLat = (minLat + maxLat) / 2;
 
-              // Auto zoom estimate (adjustable)
-              let autoZoom = 16 - Math.log2(maxDiff * 120);
-              autoZoom = Math.min(Math.max(autoZoom, 12), 17);
+            const dx = Math.abs(maxLng - minLng);
+            const dy = Math.abs(maxLat - minLat);
+            const maxDiff = Math.max(dx, dy);
 
-              // 3️⃣ Smooth animated camera movement
-              cameraRef.current?.setCamera({
-                centerCoordinate: [centerLng, centerLat],
-                zoomLevel: autoZoom,
-                animationDuration: 1200,
-                animationMode: "ease",
-              });
+            let autoZoom = 16 - Math.log2(maxDiff * 120);
+            autoZoom = Math.min(Math.max(autoZoom, 12), 17);
 
-            } catch (err) {
-              console.log("Smooth fit error:", err);
-            }
-          }, 120);
-        }
+            cameraRef.current?.setCamera({
+              centerCoordinate: [centerLng, centerLat],
+              zoomLevel: autoZoom,
+              animationDuration: 1200,
+              animationMode: "ease",
+            });
+          } catch (err) {
+            console.log("Smooth fit error:", err);
+          }
+        }, 120);
+      }
+
 
       if (type === "displayAllTracks") {
         const tracks = Array.isArray(payload) ? payload : [];
@@ -564,13 +566,13 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
 
         {start && (
           <MapLibreGL.MarkerView coordinate={start}>
-            <Image source={require("../assets/start.png")} style={{ width: 50, height: 50 }} />
+            <Image source={require("../assets/start.png")} style={{ width: 30, height: 40 }} />
           </MapLibreGL.MarkerView>
         )}
 
         {end && (
           <MapLibreGL.MarkerView coordinate={end}>
-            <Image source={require("../assets/stop.png")} style={{ width: 50, height: 50 }} />
+            <Image source={require("../assets/stop.png")} style={{ width: 30, height: 40 }} />
           </MapLibreGL.MarkerView>
         )}
 

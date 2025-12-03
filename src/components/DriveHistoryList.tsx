@@ -83,7 +83,8 @@ const DriveHistoryItem = ({
       >
         <View style={{ flexDirection: "row", justifyContent: "space-between" }}>
           <Text style={{ fontWeight: "600", fontSize: 15 }}>{displayLabel}</Text>
-          <Text style={{ fontSize: 14 }}>{item.total_km ?? "--"} km</Text>
+          <Text style={{ fontSize: 14 }}>{item.total_km != null ? Number(item.total_km).toFixed(2) : "--"} km</Text>
+
         </View>
       </TouchableOpacity>
 
@@ -98,7 +99,8 @@ const DriveHistoryItem = ({
         >
           <Text>Start: {formatTime(item.start_time)}</Text>
           <Text>End: {formatTime(item.end_time)}</Text>
-          <Text>Distance: {item.total_km ?? "--"} km</Text>
+          <Text>Distance: {item.total_km != null ? Number(item.total_km).toFixed(2) : "--"} km</Text>
+
 
           <View style={{ flexDirection: "row", marginTop: 10, justifyContent: "space-between" }}>
             <TouchableOpacity
@@ -266,7 +268,7 @@ const DriveHistoryList: React.FC<Props> = ({ apiBase, show, onSelectSession, sho
             />
           )}
           ListEmptyComponent={<EmptySessions />}
-          style={{ maxHeight: 330 }}
+          style={{ maxHeight: 250 }}
         />
       )}
     </View>
