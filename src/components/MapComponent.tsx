@@ -13,6 +13,9 @@ import MapLibreGL from "@maplibre/maplibre-react-native";
 import Geolocation from "@react-native-community/geolocation";
 import CompassHeading from "react-native-compass-heading";
 import Config from "react-native-config";
+import styles from "../styles/MapComponent.styles";
+
+
 const MAPTILER_KEY = Config.MAPTILER_KEY;
 
 MapLibreGL.setAccessToken(null);
@@ -84,6 +87,12 @@ const createCircle = (center: Coord, radiusMeters: number, steps = 60): Coord[] 
 
   return coords;
 };
+const lerp = (a: number, b: number, t: number) => a + (b - a) * t;
+
+const smoothCoord = (from: Coord, to: Coord): Coord => [
+  lerp(from[0], to[0], 0.25), // 25% smoothing
+  lerp(from[1], to[1], 0.25),
+];
 
 const distanceBetween = (a: Coord, b: Coord): number => {
   const toRad = (v: number) => (v * Math.PI) / 180;
@@ -152,7 +161,7 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
   const [isMoving, setIsMoving] = useState(false);
   const lastCoordRef = useRef<Coord | null>(null);
   const lastUpdate = useRef<number>(0);
-  const CAMERA_ANIM = 150;
+  const CAMERA_ANIM = 600;
 
   const animateRetain = (to: number) => {
     Animated.timing(retainScale, {
@@ -205,7 +214,7 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
           centerCoordinate: pt,
           zoomLevel: zoom,
           animationDuration: CAMERA_ANIM,
-          animationMode: "ease",
+          animationMode: "easeTo",
         });
       }
 
@@ -218,9 +227,26 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
 
           cameraRef.current?.setCamera({
             centerCoordinate: pt,
-            animationDuration: 0,
+            animationDuration: CAMERA_ANIM,
+            animionMode : "easeTo"
           });
         }
+      }
+
+      if (type === "stopLive") {
+        const { lat, lng } = payload;
+        const pt: Coord = [lng, lat];
+
+        setEnd(pt);                 
+        setIsFollowing(false); 
+        setViewMode("history");
+
+        cameraRef.current?.setCamera({
+          centerCoordinate: pt,
+          zoomLevel: zoom,
+          animationDuration: CAMERA_ANIM,
+          animationMode: "easeTo",
+        });
       }
 
       if (type === "displayTrackAndFit") {
@@ -256,8 +282,8 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
             cameraRef.current?.setCamera({
               centerCoordinate: [centerLng, centerLat],
               zoomLevel: autoZoom,
-              animationDuration: 1200,
-              animationMode: "ease",
+              animationDuration: CAMERA_ANIM,
+              animationMode: "easeTo",
             });
           } catch (err) {
             console.log("Smooth fit error:", err);
@@ -266,17 +292,25 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
       }
 
 
-      if (type === "displayAllTracks") {
-        const tracks = Array.isArray(payload) ? payload : [];
-        setHistoryPaths(tracks);
+     if (type === "displayAllTracks") {
+      const { history = [], today = [] } = payload || {};
 
-        const flat = tracks.flat();
-        if (flat.length >= 2) {
-          try {
-            cameraRef.current?.fitBounds(flat[0], flat[flat.length - 1], 120, 120);
-          } catch {}
-        }
+      setHistoryPaths(history);   
+      setTodayPaths(today);     
+
+      const flat = [...history, ...today].flat();
+
+      if (flat.length >= 2) {
+        cameraRef.current?.fitBounds(
+          flat[0],
+          flat[flat.length - 1],
+          120,
+          120
+        );
       }
+    }
+
+
 
       if (type === "displayTodayTrack") {
         const tracks = Array.isArray(payload) ? payload : [];
@@ -360,22 +394,24 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
 
           cameraRef.current?.setCamera({
             centerCoordinate: coord,
-            zoomLevel: 17,
+            zoomLevel: zoom,
             animationDuration: CAMERA_ANIM,
-            animationMode: "ease",
+            animationMode: "easeTo",
           });
 
           return;
         }
 
-        if (isFollowing && viewMode === "live") {
-        setMapCenterCoord(coord);  // update center
+       if (isFollowing && viewMode === "live" && !isMoving && lastCoordRef.current) {
+        const smoothed = smoothCoord(lastCoordRef.current, coord);
+
         cameraRef.current?.setCamera({
-          centerCoordinate: coord,
-          animationDuration: 150,
-          animationMode: "ease",
+          centerCoordinate: smoothed,
+          animationDuration: CAMERA_ANIM,
+          animationMode: "easeTo",
         });
       }
+
       },
 
       (err) => {
@@ -407,15 +443,13 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
       if (!mounted) return;
       setHeading(heading);
 
-      if (viewMode === "live" && isMoving && currentCoord) {
+      if (isFollowing && viewMode === "live" && isMoving) {
       cameraRef.current?.setCamera({
-        centerCoordinate: currentCoord,
-        zoomLevel: zoom,
+        bearing: heading,
         animationDuration: CAMERA_ANIM,
-        animationMode: "ease",
+        animationMode: "easeTo",
       });
     }
-
     });
 
     return () => {
@@ -427,15 +461,25 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
   // -----------------Smooth zoom updates (no blinking)-----------------
   useEffect(() => {
     if (!cameraRef.current) return;
-    if (!mapCenterCoord) return;  
 
-    cameraRef.current.setCamera({
-      centerCoordinate: mapCenterCoord,
-      zoomLevel: zoom,
-      animationDuration: 400,
-      animationMode: "ease",
-    });
-  }, [zoom, mapCenterCoord]);
+    if (isFollowing && currentCoord) {
+      // When following: zoom AND center on user
+      cameraRef.current.setCamera({
+        centerCoordinate: currentCoord,
+        zoomLevel: zoom,
+        animationDuration: CAMERA_ANIM,
+        animationMode: "easeTo",
+      });
+    } else {
+      // Not following: only apply zoom (NO RECENTER)
+      cameraRef.current.setCamera({
+        zoomLevel: zoom,
+        animationDuration: CAMERA_ANIM,
+        animationMode: "easeTo",
+      });
+    }
+  }, [zoom, isFollowing, currentCoord]);
+
 
 
   // -----------------Reset Bearing when stopped-----------------
@@ -448,7 +492,7 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
       zoomLevel: zoom,
       bearing: 0,
       animationDuration: CAMERA_ANIM,
-      animationMode: "ease",
+      animationMode: "easeTo",
     });
   }, [isMoving, currentCoord, zoom]);
 
@@ -501,6 +545,12 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
       [highlightedPath]
     );
 
+    // -----------------smoothCurve--------------
+    const smoothCurve = (pts: Coord[]) => {
+      if (!pts || pts.length < 3) return pts;
+      return smoothPathChaikin(smoothPathChaikin(pts, 1), 1); // 2-pass smoothing
+    };
+
   // -----------------circleFeature-------------
     const circleFeature: any = currentCoord
       ? {
@@ -520,8 +570,8 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
     cameraRef.current?.setCamera({
       centerCoordinate: coord,
       zoomLevel: 17,
-      animationDuration: 200,
-      animationMode: "ease",
+      animationDuration: CAMERA_ANIM,
+      animationMode: "easeTo",
       followUserLocation: true,
     });
   };
@@ -568,14 +618,16 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
       />
 
         {start && (
-          <MapLibreGL.MarkerView coordinate={start}>
-            <Image source={require("../assets/start.png")} style={{ width: 30, height: 40 }} />
+          <MapLibreGL.MarkerView coordinate={start}
+           anchor={{ x: 0.5, y: 1.0 }}>
+            <Image source={require("../assets/start.png")} style={{ width: 30, height: 40}} />
           </MapLibreGL.MarkerView>
         )}
 
         {end && (
-          <MapLibreGL.MarkerView coordinate={end}>
-            <Image source={require("../assets/stop.png")} style={{ width: 30, height: 40 }} />
+          <MapLibreGL.MarkerView coordinate={end}
+          anchor={{ x: 0.5, y: 1.0 }}>
+            <Image source={require("../assets/stop.png")} style={{ width: 30, height: 40}} />
           </MapLibreGL.MarkerView>
         )}
 
@@ -654,7 +706,7 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
             const feature = {
               type: "Feature",
               properties: {},
-              geometry: { type: "LineString", coordinates: trk },
+              geometry: { type: "LineString", coordinates: smoothCurve(trk) },
             } as GeoJSON.Feature;
 
             return (
@@ -663,7 +715,7 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
                   id={`hist-layer-${index}`}
                   style={{
                     lineColor: "#00C853", 
-                    lineWidth: 3,
+                    lineWidth: 4,
                     lineJoin: "round",
                     lineCap: "round",
                   }}
@@ -674,13 +726,12 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
         
         {todayPaths.map((trk, index) => {
           if (!Array.isArray(trk) || trk.length < 2) return null;
-
           const feature = {
             type: "Feature" as const,
             properties: {},
             geometry: {
               type: "LineString" as const,
-              coordinates: trk,
+              coordinates: smoothCurve(trk),
             },
           };
 
@@ -693,7 +744,7 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
               <MapLibreGL.LineLayer
                 id={`today-layer-${index}`}
                 style={{
-                  lineColor: "#9e9e9e", // grey color
+                  lineColor: "#8e24aa", 
                   lineWidth: 4,
                   lineJoin: "round",
                   lineCap: "round",
@@ -708,13 +759,14 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
           <MapLibreGL.ShapeSource id="highlight-track" shape={{
             type: "Feature",
             properties: {},
-            geometry: { type: "LineString", coordinates: smoothHighlightedPath }
+            geometry: {type: "LineString", coordinates: smoothCurve(smoothHighlightedPath),  
+            },
           }}>
             <MapLibreGL.LineLayer
               id="highlight-track-line"
               style={{
                 lineColor: "#0051FF", 
-                lineWidth: 5,
+                lineWidth: 6,
                 lineJoin: "round",
                 lineCap: "round",
               }}
@@ -826,175 +878,3 @@ const MapComponent: React.FC<Props> = ({ onMapReady, refForward, onMessage }) =>
 };
 
 export default MapComponent;
-
-/* =================== STYLES =================== */
-const styles = StyleSheet.create({
-  toggleContainer: {
-    position: "absolute",
-    top: 60,
-    right: 10,
-    alignItems: "flex-end",
-    zIndex: 1,
-  },
-  mainBtn: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "rgba(255,255,255,0.5)",
-    justifyContent: "center",
-    alignItems: "center",
-    borderWidth: 1.5,
-  },
-  mainIcon: { width: 26, height: 26, resizeMode: "contain" },
-  menuBox: { marginTop: 10, elevation: 8 },
-  menuItem: {
-    flexDirection: "row",
-    alignItems: "center",
-    justifyContent: "space-between",
-    marginVertical: 4,
-    paddingVertical: 6,
-    paddingHorizontal: 10,
-    backgroundColor: "rgba(255,255,255,0.4)",
-    borderRadius: 22,
-    borderWidth: 1.5,
-  },
-  menuActive: { backgroundColor: "rgba(255,255,255,1)" },
-  menuLabel: { fontSize: 13, fontWeight: "600", color: "#000", marginRight: 10 },
-  menuIconWrapper: {
-    width: 30,
-    height: 30,
-    borderRadius: 16,
-    overflow: "hidden",
-    backgroundColor: "#fff",
-    borderWidth: 1.5,
-  },
-  menuIcon: { width: 32, height: 32, borderRadius: 16, resizeMode: "cover" },
-
-  retainWrapper: { position: "absolute", bottom: 30, right: 10, zIndex: 999 },
-  retainButton: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
-    backgroundColor: "rgba(255,255,255,0.9)",
-    borderWidth: 1.5,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-  retainIcon: { width: 24, height: 24, resizeMode: "contain" },
-
-  marker: { width: 18, height: 18, borderRadius: 9, borderWidth: 2, borderColor: "#fff" },
-  startMarker: { backgroundColor: "#28a745" },
-  endMarker: { backgroundColor: "#dc3545" },
-
-  liveMarkerWrapper: { alignItems: "center", justifyContent: "center" },
-  pulseCircle: {
-    position: "absolute",
-    width: 40,
-    height: 40,
-    borderRadius: 20,
-    backgroundColor: "rgba(0,123,255,0.18)",
-    borderWidth: 1,
-    borderColor: "rgba(0,123,255,0.5)",
-  },
-  directionArrow: {
-    width: 0,
-    height: 0,
-    marginBottom: 2,
-    borderLeftWidth: 6,
-    borderRightWidth: 6,
-    borderBottomWidth: 10,
-    borderLeftColor: "transparent",
-    borderRightColor: "transparent",
-    borderBottomColor: "#007bff",
-  },
-  directionArrowOverlay: { position: "absolute" },
-  liveMarkerOuter: {
-    width: 20,
-    height: 20,
-    borderRadius: 10,
-    borderWidth: 2,
-    borderColor: "rgba(0,123,255,0.9)",
-    justifyContent: "center",
-    alignItems: "center",
-    backgroundColor: "rgba(0,123,255,0.15)",
-    shadowColor: "#007bff",
-    shadowOffset: { width: 0, height: 0 },
-    shadowOpacity: 0.8,
-    shadowRadius: 6,
-    elevation: 6,
-  },
-  liveMarkerInner: { width: 10, height: 10, borderRadius: 5, backgroundColor: "#007bff" },
-
-    googleMarkerContainer: {
-    width: 54,
-    height: 54,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-
-  ripple: {
-    position: "absolute",
-    width: 42,
-    height: 42,
-    borderRadius: 21,
-    backgroundColor: "#4285F4",
-  },
-
-  headingCone: {
-    position: "absolute",
-    top: -18,
-    width: 0,
-    height: 0,
-    borderLeftWidth: 10,
-    borderRightWidth: 10,
-    borderBottomWidth: 24,
-    borderLeftColor: "transparent",
-    borderRightColor: "transparent",
-    borderBottomColor: "rgba(66,133,244,0.65)",
-    opacity: 0.95,
-  },
-
-  googleDotOuter: {
-    width: 24,
-    height: 24,
-    borderRadius: 12,
-    backgroundColor: "#4285F4",
-    borderWidth: 3,
-    borderColor: "#FFFFFF",
-    shadowColor: "#4285F4",
-    shadowOpacity: 0.6,
-    shadowRadius: 8,
-    shadowOffset: { width: 0, height: 0 },
-    elevation: 10,
-    justifyContent: "center",
-    alignItems: "center",
-  },
-
-  googleDotInner: {
-    width: 12,
-    height: 12,
-    borderRadius: 6,
-    backgroundColor: "#1A73E8",
-  },
-
-  startEndIcon: { width: 32, height: 32, resizeMode: "contain", marginTop: -10 },
-
-  zoomContainer: {
-    position: "absolute",
-    left: 10,
-    top: 10,
-    alignItems: "center",
-    zIndex: 1,
-  },
-  zoomBtn: {
-    width: 30,
-    height: 30,
-    borderRadius: 8,
-    backgroundColor: "rgba(255,255,255,0.9)",
-    justifyContent: "center",
-    alignItems: "center",
-    marginVertical: 4,
-    borderWidth: 1.2,
-  },
-  zoomText: { fontSize: 22, fontWeight: "700", color: "#000" },
-});

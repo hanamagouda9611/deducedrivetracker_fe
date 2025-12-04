@@ -180,34 +180,62 @@ const HomeScreen: React.FC = () => {
     if (userInfo?.employee_id) fetchStats();
   }, [userInfo, fetchStats]);
 
+
   /** --------------- ALL SESSIONS ON MAP -------------- */
-  const loadAllSessionsOnMap = useCallback(async () => {
+   const loadAllSessionsOnMap = useCallback(async () => {
     try {
       const res = await axios.get(`${API_BASE}/drive/session/all`);
       const allSessions: any[] = res.data?.sessions || [];
 
-      const allTracks: [number, number][][] = allSessions.map((ses: any) =>
-      Array.isArray(ses.points)
-        ? ses.points
-            .map((p: DrivePoint): [number, number] => {
-              const lng = Number(p.longitude ?? p.lng);
-              const lat = Number(p.latitude ?? p.lat);
-              return [lng, lat];
-            })
-            .filter(([lng, lat]: [number, number]) => !isNaN(lng) && !isNaN(lat))
-        : []
-    );
-      postToMap({
-        type: "displayAllTracks",
-        payload: allTracks,
+      const todayStr = new Date().toISOString().split("T")[0];
+
+      const historyTracks: [number, number][][] = [];
+      const todayTracks: [number, number][][] = [];
+
+      allSessions.forEach((ses: any) => {
+
+        // ---------- FIXED DATE FIELD ----------
+        const sessionDate =
+          ses.date?.split("T")[0] ??
+          ses.created_at?.split("T")[0] ??
+          ses.createdAt?.split("T")[0] ??
+          ses.start_time?.split("T")[0] ??
+          ses.startTime?.split("T")[0] ??
+          null;
+
+        // ---------- EXTRACT COORDINATES ----------
+        const coords =
+          Array.isArray(ses.points)
+            ? ses.points
+                .map((p: any) => [
+                  Number(p.longitude ?? p.lng),
+                  Number(p.latitude ?? p.lat),
+                ])
+                .filter(([lng, lat]: [number, number]) => !isNaN(lng) && !isNaN(lat))
+            : [];
+
+        // ---------- SAFETY: if no date, treat as history ----------
+        if (!sessionDate) {
+          historyTracks.push(coords);
+          return;
+        }
+
+        // ---------- SPLIT TODAY & HISTORY ----------
+        if (sessionDate === todayStr) todayTracks.push(coords);
+        else historyTracks.push(coords);
       });
 
-    } catch (err) {
-      console.warn("All sessions fetch error:", err);
-      showToast("Unable to load all sessions", "error");
-    }
-  }, [postToMap, showToast]);
+      // ---------- SEND BOTH TRACK SETS ----------
+      postToMap({
+        type: "displayAllTracks",
+        payload: { history: historyTracks, today: todayTracks },
+      });
 
+      } catch (err) {
+        console.warn("All sessions fetch error:", err);
+        showToast("Unable to load all sessions", "error");
+      }
+    }, [postToMap, showToast]);
 
 /** ----------- SELECT SESSIONS ON MAP -------------- */
   interface DrivePoint {
@@ -218,57 +246,57 @@ const HomeScreen: React.FC = () => {
     [key: string]: any;
   }
 
-const handleSelectSession = useCallback(
-  async (sessionId: number, mode?: string) => {
-    try {
-      const res = await axios.get(`${API_BASE}/drive/session/all`);
-      const allSessions: any[] = res.data?.sessions || [];
+  const handleSelectSession = useCallback(
+    async (sessionId: number, mode?: string) => {
+      try {
+        const res = await axios.get(`${API_BASE}/drive/session/all`);
+        const allSessions: any[] = res.data?.sessions || [];
 
-      if (mode === "clear") {
-        postToMap({ type: "clear" });
-        showToast("Cleared", "info");
-        return;
+        if (mode === "clear") {
+          postToMap({ type: "clear" });
+          showToast("Cleared", "info");
+          return;
+        }
+
+        const selected = allSessions.find((s) => s.id === sessionId);
+
+        if (!selected) {
+          showToast("Session not found", "error");
+          return;
+        }
+
+        const points: DrivePoint[] = selected.points || [];
+        const norm = points
+        .map((p: DrivePoint) => {
+          const lng = Number(p.longitude ?? p.lng);
+          const lat = Number(p.latitude ?? p.lat);
+
+          if (isNaN(lng) || isNaN(lat)) return null;
+
+          return [lng, lat] as [number, number];
+        })
+        .filter((c): c is [number, number] => Array.isArray(c));
+
+
+        if (norm.length === 0) {
+          showToast("No track points found", "info");
+          return;
+        }
+
+        postToMap({ type: "setHistoryMode" });
+
+        postToMap({
+          type: "displayTrackAndFit",
+          payload: norm,
+        });
+
+      } catch (err) {
+        console.warn("Session fetch error:", err);
+        showToast("Unable to fetch sessions", "error");
       }
-
-      const selected = allSessions.find((s) => s.id === sessionId);
-
-      if (!selected) {
-        showToast("Session not found", "error");
-        return;
-      }
-
-      const points: DrivePoint[] = selected.points || [];
-      const norm = points
-      .map((p: DrivePoint) => {
-        const lng = Number(p.longitude ?? p.lng);
-        const lat = Number(p.latitude ?? p.lat);
-
-        if (isNaN(lng) || isNaN(lat)) return null;
-
-        return [lng, lat] as [number, number];
-      })
-      .filter((c): c is [number, number] => Array.isArray(c));
-
-
-      if (norm.length === 0) {
-        showToast("No track points found", "info");
-        return;
-      }
-
-      postToMap({ type: "setHistoryMode" });
-
-      postToMap({
-        type: "displayTrackAndFit",
-        payload: norm,
-      });
-
-    } catch (err) {
-      console.warn("Session fetch error:", err);
-      showToast("Unable to fetch sessions", "error");
-    }
-  },
-  [postToMap, showToast]
-);
+    },
+    [postToMap, showToast]
+  );
 
 
 /** -----------LOCATION PERMISSION--------------- */
@@ -336,7 +364,7 @@ const handleSelectSession = useCallback(
       () => showToast("GPS error", "error"),
       { enableHighAccuracy: true }
     );
-
+    //----Get live data--------
     watchIdRef.current = Geolocation.watchPosition(
       async (pos) => {
         setLogoutModalVisible(false);
@@ -400,6 +428,15 @@ const handleSelectSession = useCallback(
         { headers: { Authorization: `Bearer ${token}` } }
       );
 
+    // ⭐ GET FINAL COORDINATE BEFORE STOP
+        const last = currentDriveTrack[currentDriveTrack.length - 1];
+        if (last) {
+          postToMap({
+            type: "stopLive",
+            payload: { lat: last.lat, lng: last.lng }
+          });
+        }
+
       // Stop success
       setTracking(false);
       setDriveStopped(true);
@@ -409,7 +446,7 @@ const handleSelectSession = useCallback(
       setDriveStopped(false);
       showToast("Stop failed, try again", "error");
     }
-  }, [currentSessionId, showToast]);
+    }, [currentSessionId, showToast, currentDriveTrack, postToMap]);
 
 
 
@@ -463,7 +500,6 @@ const handleSelectSession = useCallback(
       showToast("Failed to plot today's drive", "error");
     }
   }, [postToMap, showToast]);
-
 
 
   /**--------------LOGOUT----------------*/
